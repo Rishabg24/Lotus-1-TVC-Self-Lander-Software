@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "../../../../Rocket_Software"
+		},
+		{
+			"name": "TVC_Software",
+			"path": "."
+		}
+	],
+	"settings": {
+		"git.ignoreLimitWarning": true
+	}
+}
