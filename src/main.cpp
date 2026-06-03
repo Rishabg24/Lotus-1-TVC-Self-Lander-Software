@@ -19,7 +19,7 @@
 #endif
 
 // ─────────────────────────────────────────────
-//  Pin Definitions
+//  Pin Definitionsx
 // ─────────────────────────────────────────────
 static constexpr int LED_PIN = 41;
 static constexpr int SERVO1_PIN = 0;
@@ -57,8 +57,8 @@ static void initHardware()
     Wire.begin();
     Wire2.begin();
 
-    servoPitch.attach(SERVO1_PIN);
-    servoYaw.attach(SERVO2_PIN);
+    servoPitch.attach(SERVO1_PIN); // Servo 1 is controlling pitch 
+    servoYaw.attach(SERVO2_PIN); // Servo 2 is controlling yaw
 }
 
 static void indicateError()
@@ -66,39 +66,41 @@ static void indicateError()
     // Slowly fade LED in and out to indicate Error
     while (1)
     {
-       // fade in
-       for (int brightness = 0; brightness<=255; brightness++){
-        analogWrite(LED_PIN, brightness);
-        delay(5);
-       }
+        // fade in
+        for (int brightness = 0; brightness <= 255; brightness++)
+        {
+            analogWrite(LED_PIN, brightness);
+            delay(5);
+        }
 
-       for (int brightness = 255; brightness>=0; brightness--){
-        analogWrite(LED_PIN, brightness);
-        delay(5);
-       }
+        for (int brightness = 255; brightness >= 0; brightness--)
+        {
+            analogWrite(LED_PIN, brightness);
+            delay(5);
+        }
     }
 }
 
-static void indicateSuccess(){
+static void indicateSuccess()
+{
 
-     // Blink LED 3 times to indicate success
-   
-        // saves more flash memory using loop
-        for (int i = 0; i < 3; i++)
+    // Blink LED 3 times to indicate success
+
+    // saves more flash memory using loop
+    for (int i = 0; i < 3; i++)
+    {
+        digitalWrite(LED_PIN, HIGH);
+        delay(150);
+        digitalWrite(LED_PIN, LOW);
+
+        if (i < 2)
         {
-            digitalWrite(LED_PIN, HIGH);
             delay(150);
-            digitalWrite(LED_PIN, LOW);
-
-            if (i < 2)
-            {
-                delay(150);
-            }
         }
-
-        delay(1000);
     }
 
+    delay(1000);
+}
 
 static void initIMU()
 {
@@ -119,7 +121,8 @@ static void initBaro()
     {
         // Serial.println("[ERROR] Barometer init failed — halting.");
         indicateError();
-        while (1);
+        while (1)
+            ;
     }
 
     // Take a few readings and average to get a stable ground reference
@@ -172,24 +175,22 @@ static void logFlightData(float ax, float ay, float az, float gx, float gy, floa
     flightlogger.logPacket(pkt);
 }
 
-static void writeServosMicroseconds(Servo &servoPitch, Servo &servoYaw, float servoYawAngle, float servoPitchAngle)
+static void writeServosMicroseconds(Servo &servoPitch, Servo &servoYaw, float servoYawAngleRad, float servoPitchAngleRad)
 {
     const int CENTER_Us = 1500;
-    const float US_PER_DEGREE = 1000.0 / 180.0; // 1000 microseconds for 180 degrees
 
-    // Positive Yaw Angle Input = Rocket Nose Right = Nozzle Left = Decrease Pulse Width (-1.0)
-    // Positive Pitch Angle Input = Rocket Nose Up = Nozzle Down = Check your mechanical link!
-    // Depending on how the servos are mounted, you may need to invert the sign of the angles or swap them. Adjust the multipliers accordingly.
+    // Convert radians directly to microseconds
+    // 1000 microseconds corresponds to PI radians (180 degrees)
+    const float US_PER_RADIAN = 4000.0f / M_PI;
 
-    // Adjust signs as needed based on servo orientation and mechanical linkage
     const float yawMultiplier = -1.0f;
     const float pitchMultiplier = -1.0f;
 
-    int yawUs = CENTER_Us + (int)(yawMultiplier * servoYawAngle * US_PER_DEGREE);
-    int pitchUs = CENTER_Us + (int)(pitchMultiplier * servoPitchAngle * US_PER_DEGREE);
+    int yawUs = CENTER_Us + (int)(yawMultiplier * servoYawAngleRad * US_PER_RADIAN);
+    int pitchUs = CENTER_Us + (int)(pitchMultiplier * servoPitchAngleRad * US_PER_RADIAN);
 
-    const int MIN_US = 1500 - 82; // ~ 15 degrees of gimbal deflection
-    const int MAX_US = 1500 + 82; // ~ 15 degrees of gimbal deflection
+    const int MIN_US = 1500 - 334; // ~ 15 degrees of gimbal deflection
+    const int MAX_US = 1500 + 334; // ~ 15 degrees of gimbal deflection
 
     yawUs = constrain(yawUs, MIN_US, MAX_US);
     pitchUs = constrain(pitchUs, MIN_US, MAX_US);
@@ -281,12 +282,13 @@ static void flightLoop()
 
         case GROUND_IDLE:
         {
-            tvc.disable();                      // Ensure TVC is off on the ground
-            servoPitch.writeMicroseconds(1500); // Center position
-            servoYaw.writeMicroseconds(1500);   // Center position
+            tvc.disable();
+            servoPitch.writeMicroseconds(1500);
+            servoYaw.writeMicroseconds(1500);
             servoYawAngle = 0.0f;
             servoPitchAngle = 0.0f;
-
+            prevServoXcmd = 0.0f; // Reset rate limiter baseline
+            prevServoYcmd = 0.0f;
             break;
         }
         case POWERED_FLIGHT:
@@ -294,21 +296,21 @@ static void flightLoop()
             {
                 tvc.update(w, x, y, z, dt);
 
-                servoYawAngle = tvc.getServoX();   // Yaw in X axis with angle being in radians
-                servoPitchAngle = tvc.getServoY(); // Pitch in Y axis with angle being in radians
+                servoPitchAngle = tvc.getServoX(); // Pitch in X axis with angle being in radians
+                servoYawAngle = tvc.getServoY();   // Yaw in Y axis with angle being in radians
 
                 // clamp delta between new TVC output and previous servo command to max rate of servo
-                float deltaYaw = servoYawAngle - prevServoXcmd;
-                float deltaPitch = servoPitchAngle - prevServoYcmd;
+                float deltaYaw = servoYawAngle - prevServoYcmd;
+                float deltaPitch = servoPitchAngle - prevServoXcmd;
                 deltaYaw = constrain(deltaYaw, -SERVO_MAX_DEG_PER_TICK * (PI / 180.0f), SERVO_MAX_DEG_PER_TICK * (PI / 180.0f));
                 deltaPitch = constrain(deltaPitch, -SERVO_MAX_DEG_PER_TICK * (PI / 180.0f), SERVO_MAX_DEG_PER_TICK * (PI / 180.0f));
-                servoYawAngle = prevServoXcmd + deltaYaw;
-                servoPitchAngle = prevServoYcmd + deltaPitch;
+                servoYawAngle = prevServoYcmd + deltaYaw;
+                servoPitchAngle = prevServoXcmd + deltaPitch;
 
                 writeServosMicroseconds(servoPitch, servoYaw, servoYawAngle, servoPitchAngle);
 
-                prevServoXcmd = servoYawAngle;
-                prevServoYcmd = servoPitchAngle;
+                prevServoXcmd = servoPitchAngle;
+                prevServoYcmd = servoYawAngle;
 
                 break;
             }
@@ -316,10 +318,12 @@ static void flightLoop()
             // TVC off, no pyro
             {
                 tvc.disable();
-                servoPitch.writeMicroseconds(1500); // Center position
-                servoYaw.writeMicroseconds(1500);   // Center position
+                servoPitch.writeMicroseconds(1500);
+                servoYaw.writeMicroseconds(1500);
                 servoYawAngle = 0.0f;
                 servoPitchAngle = 0.0f;
+                prevServoXcmd = 0.0f; // Reset rate limiter baseline
+                prevServoYcmd = 0.0f;
                 break;
             }
         case BALLISTIC_DESCENT:
@@ -355,21 +359,21 @@ static void flightLoop()
 
             tvc.update(w, x, y, z, dt);
 
-            servoYawAngle = tvc.getServoX();   // Yaw in X axis with angle being in radians
-            servoPitchAngle = tvc.getServoY(); // Pitch in Y axis with angle being in radians
+            servoPitchAngle = tvc.getServoX(); // Pitch in X axis with angle being in radians
+            servoYawAngle = tvc.getServoY();   // Yaw in Y axis with angle being in radians
 
             // clamp delta between new TVC output and previous servo command to max rate of servo
 
-            float deltaYaw = servoYawAngle - prevServoXcmd;
-            float deltaPitch = servoPitchAngle - prevServoYcmd;
+            float deltaYaw = servoYawAngle - prevServoYcmd;
+            float deltaPitch = servoPitchAngle - prevServoXcmd;
             deltaYaw = constrain(deltaYaw, -SERVO_MAX_DEG_PER_TICK * (PI / 180.0f), SERVO_MAX_DEG_PER_TICK * (PI / 180.0f));
             deltaPitch = constrain(deltaPitch, -SERVO_MAX_DEG_PER_TICK * (PI / 180.0f), SERVO_MAX_DEG_PER_TICK * (PI / 180.0f));
-            servoYawAngle = prevServoXcmd + deltaYaw;
-            servoPitchAngle = prevServoYcmd + deltaPitch;
+            servoYawAngle = prevServoYcmd + deltaYaw;
+            servoPitchAngle = prevServoXcmd + deltaPitch;
 
             writeServosMicroseconds(servoPitch, servoYaw, servoYawAngle, servoPitchAngle);
-            prevServoXcmd = servoYawAngle;
-            prevServoYcmd = servoPitchAngle;
+            prevServoXcmd = servoPitchAngle;
+            prevServoYcmd = servoYawAngle;
 
             break;
         }
@@ -388,6 +392,7 @@ static void flightLoop()
                       flightlogger);
     }
 }
+
 
 // ─────────────────────────────────────────────
 //  Entry Point
@@ -434,10 +439,12 @@ int main()
     testPyroChannel(pyroPin);
 
 #else
-    initIMU();
-    initBaro();
-    initFlash();
-    flightLoop();
+    // initIMU();
+    // initBaro();
+    // initFlash();
+    // flightLoop();
+
+    writeServosMicroseconds(servoPitch, servoYaw, -3.14159f, -3.14159f); 
 
 #endif
 

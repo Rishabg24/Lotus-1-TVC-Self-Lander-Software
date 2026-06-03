@@ -14,33 +14,37 @@
 // Useful when a sensor isn't responding — confirms wiring before debugging code.
 void test_i2cScan(int type)
 {
-    if (type == 1){
-    Serial.println("── I2C Scan ──");
-    for (uint8_t addr = 1; addr < 127; addr++)
+    if (type == 1)
     {
-        Wire.beginTransmission(addr);
-        if (Wire.endTransmission() == 0)
+        Serial.println("── I2C Scan ──");
+        for (uint8_t addr = 1; addr < 127; addr++)
         {
-            Serial.print("  Found device at 0x");
-            Serial.println(addr, HEX);
+            Wire.beginTransmission(addr);
+            if (Wire.endTransmission() == 0)
+            {
+                Serial.print("  Found device at 0x");
+                Serial.println(addr, HEX);
+            }
         }
+        Serial.println("── Scan done ──");
+        while (1)
+            ;
     }
-    Serial.println("── Scan done ──");
-    while (1);
-    }
-    else if(type == 2){
+    else if (type == 2)
+    {
         Serial.println("── I2C Bus 2 Scan ──");
 
         for (TwoWire *bus : {&Wire, &Wire1, &Wire2})
-    {
-        bus->begin();
-        for (uint8_t addr = 1; addr < 127; addr++)
         {
-            bus->beginTransmission(addr);
-            if (bus->endTransmission() == 0)
-                Serial.printf("  Found 0x%02X on Wire%d\n", addr, bus == &Wire ? 0 : bus == &Wire1 ? 1 : 2);
+            bus->begin();
+            for (uint8_t addr = 1; addr < 127; addr++)
+            {
+                bus->beginTransmission(addr);
+                if (bus->endTransmission() == 0)
+                    Serial.printf("  Found 0x%02X on Wire%d\n", addr, bus == &Wire ? 0 : bus == &Wire1 ? 1
+                                                                                                       : 2);
+            }
         }
-    }
     }
 }
 
@@ -96,10 +100,11 @@ void test_imuAccel(BMI323 &imu)
     Serial.println("── IMU Accelerometer Test (10 Hz) ──");
     while (1)
     {
+        imu.update();
         float ax, ay, az;
-        imu.readAccelerometer(ax, ay, az);
+        imu.getlastAccel(ax, ay, az); // ← reads remapped values
         Serial.printf("Accel  X: %6.3f  Y: %6.3f  Z: %6.3f  g\n", ax, ay, az);
-        delay(100);
+        delay(300);
     }
 }
 
@@ -111,7 +116,7 @@ void test_imuGyro(BMI323 &imu)
         float gx, gy, gz;
         imu.readGyroscope(gx, gy, gz);
         Serial.printf("Gyro   X: %6.3f  Y: %6.3f  Z: %6.3f  rad/s\n", gx, gy, gz);
-        delay(100);
+        delay(300);
     }
 }
 
@@ -178,34 +183,75 @@ void testPyroChannel(int pyroPin)
         delay(1000);
     }
 }
-
 void test_tvc(BMI323 &imu, TVC &tvc, Servo &servo1, Servo &servo2)
 {
     Serial.println("── TVC Test ──");
-    tvc.init(1.0f, 0.0f, 0.1f, 15.0f);
+    constexpr float maxGimbalAngleRad = 16.0f * (M_PI / 180.0f);
 
-    uint32_t lastTime = micros();
+    // Note: These gains (0.1, 0.01, 0.05) are quite low for radians.
+    // You may need to increase them once the jitter is gone to get strong deflection!
+    tvc.init(4.5f, 0.00f, 0.01f, maxGimbalAngleRad);
+
+    // === MATCH FLIGHT LOOP TIMING (100 Hz) ===
+    constexpr float CONTROL_LOOP_HZ = 100.0f;
+    constexpr uint32_t LOOP_US = 1000000 / CONTROL_LOOP_HZ;
+
+    uint32_t lastTick = micros();
+    uint32_t lastPrintTime = millis();
+
+    const int CENTER_Us = 1500;
+    const float US_PER_RADIAN = 4000.0f / M_PI;
+
+    // Dynamically compute limits based on your max gimbal angle
+    const int maxDeflectionUs = (int)(maxGimbalAngleRad * US_PER_RADIAN);
+    const int MIN_US = CENTER_Us - maxDeflectionUs; // Will be exactly 1500 - 355
+    const int MAX_US = CENTER_Us + maxDeflectionUs; // Will be exactly 1500 + 355
 
     while (1)
     {
-        uint32_t now = micros();
-        float dt = (now - lastTime) / 1e6f;
-        lastTime = now;
+        // 1. Enforce strict 100Hz timing
+        while (micros() - lastTick < LOOP_US)
+        {
+            // Wait for the next 10ms frame
+        }
 
+        uint32_t now = micros();
+        float dt = (now - lastTick) / 1000000.0f; // dt should confidently be ~0.01
+        lastTick = now;
+
+        // 2. Read IMU at exactly 100Hz
         imu.update();
+
         float w, x, y, z;
         imu.getQuaternion(w, x, y, z);
 
         tvc.update(w, x, y, z, dt);
 
-        float servoX = tvc.getServoX();
-        float servoY = tvc.getServoY();
+        float servoXRad = tvc.getServoX();
+        float servoYRad = tvc.getServoY();
 
-        servo1.write(90 + (int)servoX);
-        servo2.write(90 + (int)servoY);
+        int pitchUs = CENTER_Us + (int)(-1.0f * servoXRad * US_PER_RADIAN);
+        int yawUs = CENTER_Us + (int)(-1.0f * servoYRad * US_PER_RADIAN);
 
-        Serial.printf("ServoX: %6.2f°  ServoY: %6.2f°\n", servoX, servoY);
-        delay(10);
+        pitchUs = constrain(pitchUs, MIN_US, MAX_US);
+        yawUs = constrain(yawUs, MIN_US, MAX_US);
+
+        // 3. Write updates to hardware at exactly 100Hz
+        servo1.writeMicroseconds(yawUs); // just for testing
+        servo2.writeMicroseconds(pitchUs);
+
+        // Print at 5Hz
+        if (millis() - lastPrintTime >= 200)
+        {
+            lastPrintTime = millis();
+            float gx, gy, gz;
+            imu.getlastGyro(gx, gy, gz);
+
+            Serial.printf("Q: w=%.3f x=%.3f y=%.3f z=%.3f\n", w, x, y, z);
+            Serial.printf("TVC Rads -> X: %.4f rad | Y: %.4f rad\n", servoXRad, servoYRad);
+            Serial.printf("Servo PWM -> Pitch: %d us | Yaw: %d us\n", pitchUs, yawUs);
+            Serial.printf("Gyro -> x: %.4f | y: %.4f | z: %.4f\n\n", gx, gy, gz);
+        }
     }
 }
 

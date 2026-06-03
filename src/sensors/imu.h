@@ -101,6 +101,10 @@ private:
     float accelScale;
     float gyroScale;
 
+
+    float gyroBiasX;
+    float gyroBiasY;
+    float gyroBiasZ;
     // Quaternion state
     float q0, q1, q2, q3;
 

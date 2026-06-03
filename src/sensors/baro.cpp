@@ -29,11 +29,11 @@ bool Baro::begin()
 
     readCalibrationData();
 
-    // Add this block:
-    Serial.printf("par_t1=%u par_t2=%u par_t3=%d\n", calibData.par_t1, calibData.par_t2, calibData.par_t3);
-    Serial.printf("par_p1=%d par_p2=%d par_p3=%d par_p4=%d\n", calibData.par_p1, calibData.par_p2, calibData.par_p3, calibData.par_p4);
-    Serial.printf("par_p5=%u par_p6=%u par_p7=%d par_p8=%d\n", calibData.par_p5, calibData.par_p6, calibData.par_p7, calibData.par_p8);
-    Serial.printf("par_p9=%d par_p10=%d par_p11=%d\n", calibData.par_p9, calibData.par_p10, calibData.par_p11);
+    // // Add this block:
+    // Serial.printf("par_t1=%u par_t2=%u par_t3=%d\n", calibData.par_t1, calibData.par_t2, calibData.par_t3);
+    // Serial.printf("par_p1=%d par_p2=%d par_p3=%d par_p4=%d\n", calibData.par_p1, calibData.par_p2, calibData.par_p3, calibData.par_p4);
+    // Serial.printf("par_p5=%u par_p6=%u par_p7=%d par_p8=%d\n", calibData.par_p5, calibData.par_p6, calibData.par_p7, calibData.par_p8);
+    // Serial.printf("par_p9=%d par_p10=%d par_p11=%d\n", calibData.par_p9, calibData.par_p10, calibData.par_p11);
 
     // Also dump the raw bytes so we can see what the sensor actually sent:
     Serial.print("raw calib bytes: ");
@@ -210,7 +210,7 @@ void Baro::getAltitude(float &altitude, float seaLevelPressure)
     // altitude = 44330 * (1 - (P/P0)^(1/5.255))
     // P = pressure in Pa, P0 = sea level pressure in Pa
     float pressureRatio = (pressure / 100.0f) / seaLevelPressure; // Convert Pa to hPa
-    altitude = 44330.0f * (1.0f - powf(pressureRatio, 0.1903f));
+    altitude = 44330.0f * (1.0f - powf(pressureRatio, 0.19029f));
 }
 
 void Baro::readAll(float &pressure, float &temperature, float &altitude, float seaLevelPressure)

@@ -43,17 +43,34 @@ bool BMI323::begin()
     configureGyroscope();
     delay(5);
 
-    // Set scale factors based on configured ranges
+     // Set scale factors based on configured ranges
     // For ±4G range: sensitivity = 8192 LSB/g
     // Scale = range / 32768
-    accelScale = 4.0f / 8192.0f; // ±4G range, sensitivity 8192 LSB/g
+
+    accelScale = 1.0f / 8192.0f;  // ±4G range, sensitivity 8192 LSB/g
 
     // For ±125 dps range: sensitivity = 262.144 LSB/(°/s)
     // Scale = range / sensitivity = 125 / 262.144
     // Convert to rad/s: multiply by (π/180)
-    gyroScale = (125.0f / 262.144f) * (M_PI / 180.0f); // ±125 dps range to rad/s
+
+    gyroScale = (125.0f * (M_PI / 180.0f)) / 32768.0f;  // ±125 dps range to rad/s
+
+    float bx = 0, by = 0, bz = 0;
+    for (int i = 0; i < 200; i++)
+    {
+        float gx, gy, gz;
+        readGyroscope(gx, gy, gz);
+        bx += gx;
+        by += gy;
+        bz += gz;
+        delay(5);
+    }
+    gyroBiasX = 0; // bx / 200.0f;
+    gyroBiasY = 0; // by / 200.0f;
+    gyroBiasZ = 0; // bz / 200.0f;
 
     // Initialize quaternion to identity (no rotation)
+
     q0 = 1.0f;
     q1 = 0.0f;
     q2 = 0.0f;
@@ -113,29 +130,23 @@ void BMI323::configureGyroscope()
 void BMI323::readAccelerometer(float &ax, float &ay, float &az)
 {
     uint16_t rawData[3];
-
-    readReg16(REG_ACC_DATA_X, &rawData[0]);
-    readReg16(REG_ACC_DATA_Y, &rawData[1]);
-    readReg16(REG_ACC_DATA_Z, &rawData[2]);
-
-    // Convert to signed 16-bit values
-    int16_t rawAx = (int16_t)rawData[0];
-    int16_t rawAy = (int16_t)rawData[1];
-    int16_t rawAz = (int16_t)rawData[2];
+    if (!readReg16(REG_ACC_DATA_X, &rawData[0])) return;
+    if (!readReg16(REG_ACC_DATA_Y, &rawData[1])) return;
+    if (!readReg16(REG_ACC_DATA_Z, &rawData[2])) return;
 
     // Apply scale factors to get acceleration in g
-    ax = rawAx * accelScale;
-    ay = rawAy * accelScale;
-    az = rawAz * accelScale;
+    ax = (int16_t)rawData[0] * accelScale;
+    ay = (int16_t)rawData[1] * accelScale;
+    az = (int16_t)rawData[2] * accelScale;
 }
 
 void BMI323::readGyroscope(float &gx, float &gy, float &gz)
 {
     uint16_t rawData[3];
 
-    readReg16(REG_GYR_DATA_X, &rawData[0]);
-    readReg16(REG_GYR_DATA_Y, &rawData[1]);
-    readReg16(REG_GYR_DATA_Z, &rawData[2]);
+    if (!readReg16(REG_GYR_DATA_X, &rawData[0])) return;
+    if (!readReg16(REG_GYR_DATA_Y, &rawData[1])) return;
+    if (!readReg16(REG_GYR_DATA_Z, &rawData[2])) return;
 
     // Convert to signed 16-bit values
     int16_t rawGx = (int16_t)rawData[0];
@@ -143,9 +154,13 @@ void BMI323::readGyroscope(float &gx, float &gy, float &gz)
     int16_t rawGz = (int16_t)rawData[2];
 
     // Apply scale factors to get angular rate in rad/s
-    gx = rawGx * gyroScale;
-    gy = rawGy * gyroScale;
-    gz = rawGz * gyroScale;
+    gx = (int16_t)rawData[0] * gyroScale;
+    gy = (int16_t)rawData[1] * gyroScale;
+    gz = (int16_t)rawData[2] * gyroScale;
+
+    gx -= gyroBiasX;
+    gy -= gyroBiasY;
+    gz -= gyroBiasZ;
 }
 
 void BMI323::readTemperature(float &temp)
@@ -244,21 +259,39 @@ void BMI323::getQuaternion(float &w, float &x, float &y, float &z)
 
 void BMI323::update()
 {
+    float chip_ax, chip_ay, chip_az;
+    float chip_gx, chip_gy, chip_gz;
 
-    readAccelerometer(last_ax, last_ay, last_az);
-    readGyroscope(last_gx, last_gy, last_gz);
+    readAccelerometer(chip_ax, chip_ay, chip_az);
+    readGyroscope(chip_gx, chip_gy, chip_gz);
+
+    // Remap to rocket frame: Rocket Z is up.
+    // PCB layout has Chip Y pointing up.
+    // X_rocket = Chip Z
+    // Y_rocket = Chip X
+    // Z_rocket = Chip Y (Up)
+    
+    last_ax = chip_az;
+    last_ay = chip_ax;
+    last_az = chip_ay;
+
+    last_gx = chip_gz;
+    last_gy = chip_gx;
+    last_gz = chip_gy;
 
     // Run Madgwick filter with gyro in rad/s and accel in g
     madgwickUpdate(last_ax, last_ay, last_az, last_gx, last_gy, last_gz);
 }
 
-void BMI323::getlastAccel(float &ax, float &ay, float &az){
+void BMI323::getlastAccel(float &ax, float &ay, float &az)
+{
     ax = last_ax;
     ay = last_ay;
     az = last_az;
 }
 
-void BMI323::getlastGyro(float &gx, float &gy, float &gz){
+void BMI323::getlastGyro(float &gx, float &gy, float &gz)
+{
     gx = last_gx;
     gy = last_gy;
     gz = last_gz;

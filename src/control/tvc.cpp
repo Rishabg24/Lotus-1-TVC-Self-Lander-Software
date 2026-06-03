@@ -108,16 +108,14 @@ void TVC::computeErrorQuat(float qCurr[4], float qErr[4])
 
 void TVC::extractControlErrors(float qErr[4], float *pitchError, float *yawError)
 {
-    // Standard ZYX Euler extraction from a unit quaternion (w, x, y, z).
-    //
-    // Pitch (θ)
-    //   θ = asin( 2·(w·y − x·z) )
-    //
-    // Yaw (ψ)
-    //   ψ = atan2( 2·(w·z + x·y),  1 − 2·(y²+z²) )
-    //
-    // Roll is intentionally not extracted — TVC cannot control it and we
-    // don't want roll contaminating pitch/yaw commands.
+
+    // Using a vertical, or traditional coordinate system:
+    // X: parallel to ground and rotational axis for Pitch
+    // Y: parallel to ground and roataional axis for Yaw
+    // Z: perpendicular to ground and rotational axis for roll
+
+    // Using axis-angle extraction to avoid gimabl lock. Essentially computing the projection of the total rotation vector
+    // onto each axis
 
     float w = qErr[0], x = qErr[1], y = qErr[2], z = qErr[3];
 
@@ -133,22 +131,9 @@ void TVC::extractControlErrors(float qErr[4], float *pitchError, float *yawError
 
     float scaleFactor = theta / vec_mag; // scale vector part to get correct angle
 
-    *pitchError = y * scaleFactor; // rotation about Y axis
-    *yawError = z * scaleFactor;   // rotation about Z axis
+    *pitchError = x * scaleFactor; // rotation about X axis
+    *yawError = y * scaleFactor;   // rotation about Y axis
     
-
-
-    // Pitch — clamp argument to [-1, 1] to guard against floating-point
-    // rounding that would make asin return NaN.
-
-    // float sinPitch = 2.0f * (w * y - x * z);
-    // sinPitch = constrain(sinPitch, -1.0f, 1.0f);
-    // *pitchError = asinf(sinPitch);
-
-    // Yaw — atan2 is naturally bounded and handles the full ±π range.
-
-    // *yawError = atan2f(2.0f * (w * z + x * y),
-    //                    1.0f - 2.0f * (y * y + z * z));
 }
 
 void TVC::mapToServoAngles(float pitchControl, float yawControl,
@@ -160,8 +145,8 @@ void TVC::mapToServoAngles(float pitchControl, float yawControl,
     // positive direction; we command the nozzle to deflect the same way,
     // which (because the thrust acts below the CoM) produces a restoring
     // torque. Verify direction with a bench spin test
-    *servoX_out = constrain(yawControl, -max_deflection_angle_rad, max_deflection_angle_rad);
-    *servoY_out = constrain(pitchControl, -max_deflection_angle_rad, max_deflection_angle_rad);
+    *servoX_out = constrain(pitchControl, -max_deflection_angle_rad, max_deflection_angle_rad);
+    *servoY_out = constrain(yawControl, -max_deflection_angle_rad, max_deflection_angle_rad);
 }
 
 float TVC::getServoX() { return ServoX; }
