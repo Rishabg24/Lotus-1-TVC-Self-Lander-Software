@@ -43,17 +43,17 @@ bool BMI323::begin()
     configureGyroscope();
     delay(5);
 
-     // Set scale factors based on configured ranges
+    // Set scale factors based on configured ranges
     // For ±4G range: sensitivity = 8192 LSB/g
     // Scale = range / 32768
 
-    accelScale = 1.0f / 8192.0f;  // ±4G range, sensitivity 8192 LSB/g
+    accelScale = 1.0f / 8192.0f; // ±4G range, sensitivity 8192 LSB/g
 
     // For ±125 dps range: sensitivity = 262.144 LSB/(°/s)
     // Scale = range / sensitivity = 125 / 262.144
     // Convert to rad/s: multiply by (π/180)
 
-    gyroScale = (125.0f * (M_PI / 180.0f)) / 32768.0f;  // ±125 dps range to rad/s
+    gyroScale = (125.0f * (M_PI / 180.0f)) / 32768.0f; // ±125 dps range to rad/s
 
     float bx = 0, by = 0, bz = 0;
     for (int i = 0; i < 200; i++)
@@ -99,6 +99,15 @@ bool BMI323::readReg16(uint8_t reg, uint16_t *value)
     // BMI323 I2C protocol: 2 dummy bytes + 2 data bytes
     Wire.requestFrom(addr, (uint8_t)4);
 
+    // Manual timeout handling for I2C bus stalls
+
+    uint32_t t = micros();
+    while (Wire.available() < 4)
+    {
+        if (micros() - t > 10000) // 10ms timeout
+            return false;
+    }
+
     // Discard 2 dummy bytes
     if (Wire.available() < 4)
         return false;
@@ -130,9 +139,12 @@ void BMI323::configureGyroscope()
 void BMI323::readAccelerometer(float &ax, float &ay, float &az)
 {
     uint16_t rawData[3];
-    if (!readReg16(REG_ACC_DATA_X, &rawData[0])) return;
-    if (!readReg16(REG_ACC_DATA_Y, &rawData[1])) return;
-    if (!readReg16(REG_ACC_DATA_Z, &rawData[2])) return;
+    if (!readReg16(REG_ACC_DATA_X, &rawData[0]))
+        return;
+    if (!readReg16(REG_ACC_DATA_Y, &rawData[1]))
+        return;
+    if (!readReg16(REG_ACC_DATA_Z, &rawData[2]))
+        return;
 
     // Apply scale factors to get acceleration in g
     ax = (int16_t)rawData[0] * accelScale;
@@ -144,9 +156,12 @@ void BMI323::readGyroscope(float &gx, float &gy, float &gz)
 {
     uint16_t rawData[3];
 
-    if (!readReg16(REG_GYR_DATA_X, &rawData[0])) return;
-    if (!readReg16(REG_GYR_DATA_Y, &rawData[1])) return;
-    if (!readReg16(REG_GYR_DATA_Z, &rawData[2])) return;
+    if (!readReg16(REG_GYR_DATA_X, &rawData[0]))
+        return;
+    if (!readReg16(REG_GYR_DATA_Y, &rawData[1]))
+        return;
+    if (!readReg16(REG_GYR_DATA_Z, &rawData[2]))
+        return;
 
     // Convert to signed 16-bit values
     int16_t rawGx = (int16_t)rawData[0];
@@ -270,7 +285,7 @@ void BMI323::update()
     // X_rocket = Chip Z
     // Y_rocket = Chip X
     // Z_rocket = Chip Y (Up)
-    
+
     last_ax = chip_az;
     last_ay = chip_ax;
     last_az = chip_ay;
